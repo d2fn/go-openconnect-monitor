@@ -1,167 +1,132 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"net"
 	"fmt"
-	"io"
 	"log"
-	"errors"
-	"os"
-	"os/exec"
-	"sync"
-	"syscall"
+	"strings"
 	"time"
+
+	"github.com/browserutils/kooky/browser/chrome"
+	_ "github.com/browserutils/kooky/browser/all" // register cookie store finders!
 )
 
-type Child struct {
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	name    string
-	args    []string
-	env     []string
-	running bool
-}
+
+/**
+
+Types:
+
+OpenConnectProcess:
+Provides an interface to the core openconnect process. Can start, stop, and set the DSID.
+On connect, reply with metadata about the current run as ConnectionStatus
+
+ConnectionAttemptStatus:
+A pure data structure containing metadata about a given connection attempt. If the attempt
+was successful it should report the server and client IP address. If not it should report
+any error state, specifically if the DSID cookie was rejected by the server.
+
+HealthChecker:
+Checks the health of the network by establishing a tearing down a TCP connection
+returning the status as OK or DOWN
+
+DSIDPoller:
+Polls the Cookie database for the DSID used to connect to Connect
+
+DSIDTracker:
+Keeps track of DSIDs and their state. DSID can be marked as 
+
+Timer:
+Wakes up every N seconds to run the main program loop, check connection status, poll for new
+DSID cookie
+
+Controller:
+The monitor's OODA loop. Integrates signals from the main program loop and makes decisions about
+when to to reconnect
+
+Configuration:
+Holds configurable data such as
+- VPN host and endpoint
+- Path to cookie file
+- Name of DSID cookie
+- Host and port to health check against
+- Time between health checks. This is also the time at which we check for new cookies
+
+ **/
 
 const (
 	healthCheckHost = "8.8.8.8"
 	healthCheckPort = "53"
-	healthCheckInterval = 5 * time.Second
+	healthCheckInterval = 1 * time.Second
 )
 
-func NewChild(name string, args []string) *Child {
-	return &Child{name: name, args: args, env: os.Environ()}
-}
-
-func stream(tag string, r io.ReadCloser) {
-	defer r.Close()
-	sc := bufio.NewScanner(r)
-	for sc.Scan() {
-		log.Printf("[%s] %s", tag, sc.Text())
-	}
-	if err := sc.Err(); err != nil {
-		log.Printf("[%s] stream error: %v", tag, err)
-	}
-}
-
-func (c *Child) Start(ctx context.Context) error {
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.running {
-		return errors.New("child already running")
-	}
-
-	cmd := exec.CommandContext(ctx, c.name, c.args...)
-	cmd.Env = c.env
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("stdout pipe: %w", err)
-	} else {
-		log.Printf("setup stdout")
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("stderr pipe: %w", err)
-	} else {
-		log.Printf("setup stderr")
-	}
-
-	go stream("STDOUT", stdout)
-	go stream("STDERR", stderr)
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("error starting process: %w", err)
-	} else {
-		log.Printf("[child] monitoring process with pid %d", cmd.Process.Pid)
-	}
-
-	c.cmd = cmd
-	c.running = true
-
-	go func() {
-		err := cmd.Wait()
-		c.mu.Lock()
-		c.running = false
-		c.mu.Unlock()
-		if err != nil {
-			log.Printf("[child] exited with error: %v", err)
-		} else {
-			log.Printf("[child] exited")
-		}
-	}()
-
-	return nil
-}
-
-func (c *Child) Stop(grace time.Duration) {
-	c.mu.Lock()
-	cmd := c.cmd
-	running := c.running
-	c.mu.Unlock()
-	if cmd == nil || !running {
-		return
-	}
-	pgid, _ := syscall.Getpgid(cmd.Process.Pid)
-
-	// Try graceful first.
-	_ = syscall.Kill(-pgid, syscall.SIGTERM) // negative => process group
-	waitCh := make(chan struct{})
-	go func() {
-		cmd.Wait() // already reaped in Start goroutine, but safe to wait again
-		close(waitCh)
-	}()
-
-	select {
-	case <-waitCh:
-		c.mu.Lock()
-		c.running = false
-		c.mu.Unlock()
-		return
-	case <-time.After(grace):
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		c.mu.Lock()
-		c.running = false
-		c.mu.Unlock()
-	}
-}
-
-// Start child initially
-func mustStart(child *Child, ctx context.Context) {
-}
 
 func healthCheck() bool {
 	address := net.JoinHostPort(healthCheckHost, healthCheckPort)
-	log.Printf("[parent] [%s] checking health", address)
 	d := net.Dialer{Timeout: 2 * time.Second}
 	conn, err := d.Dial("tcp", address)
 	if err != nil {
 		return false
 	}
 	_ = conn.Close()
-	log.Printf("[parent] [%s] health check OK", address)
 	return true
 }
 
+func dsidFromProfile(cookiesPath string, domain string) (string, error) {
+	// cookiesFile := "/home/d/.config/google-chrome/" + profile + "/Cookies"
+	cookiesSeq := chrome.TraverseCookies(cookiesPath).OnlyCookies()
+	for cookie := range cookiesSeq {
+		//fmt.Println(cookie.Domain, cookie.Name, cookie.Value)
+		if cookie.Domain == domain && cookie.Name == `DSID` {
+			return cookie.Value, nil
+		}
+	}
+	return "", fmt.Errorf("[parent] DSID not found for domain %q", domain)
+}
+
+
 func main() {
 
-	c := NewChild("ping", []string { healthCheckHost })
+	config, err := LoadConfig()
+	if err != nil {
+		log.Printf("Error loading config: %v", err)
+		return
+	}
+
+	log.Printf("Loaded config:\n%q\n", config)
+
+	c := NewOpenConnectProcess()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mustStart := func() {
+	loadNewDSID := func() string {
+		dsid, err := dsidFromProfile(config.DsidPoller.CookiePath, `pcs.flxvpn.net`)
+		if strings.TrimSpace(dsid) == "" {
+			log.Printf("[parent] empty DSID")
+		} else if err != nil {
+			log.Printf("[parent] error getting DSID: %v", err)
+		}
+		return dsid
+	}
+
+	dsid := loadNewDSID()
+	c.dsid = dsid
+
+	openConnectStart := func() {
+		log.Printf("[parent] Attempting to start openconnect with DSID = %s", c.dsid)
 		if err := c.Start(ctx); err != nil {
 			log.Printf("[parent] failed to start: %v", err)
 		} else {
 			log.Printf("[parent] started child")
 		}
 	}
-	mustStart()
+	openConnectStart()
+
+	openConnectRestart := func(grace time.Duration) {
+		c.Stop(grace)
+		openConnectStart()
+	}
+	
 
 	// do a health check periodically
 	ticker := time.NewTicker(healthCheckInterval)
@@ -170,13 +135,20 @@ func main() {
 	for {
 		select {
 		case <- ticker.C:
+			if !c.running {
+				openConnectStart()
+			}
 			alive := healthCheck()
-			if alive {
-				log.Printf("[parent] monitoring pid %d", c.cmd.Process.Pid)
-			} else {
-				log.Printf("[parent] connection dropped, restarting")
-				c.Stop(1 * time.Second);
-				mustStart()
+			if !alive {
+					log.Printf("[parent] connection dropped, restarting")
+				// update cookie and restart
+				dsid = loadNewDSID()
+				if dsid != c.dsid && strings.TrimSpace(dsid) != "" {
+					// cookie changed and it's non zero
+					log.Printf("DSID changed from %s to %s, restarting openconnect", c.dsid, dsid)
+					c.dsid = dsid
+				}
+				openConnectRestart(5 * time.Second)
 			}
 		}
 	}
