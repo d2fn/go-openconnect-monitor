@@ -1,0 +1,19 @@
+[controller]
+intervalSeconds = 1
+
+[dsidPoller]
+cookieName = 'DSID'
+cookiePath = '/home/d/.config/google-chrome/Profile 1/Cookies'
+
+[healthCheck]
+host = '8.8.8.8'
+port = '53'
+timeoutSeconds = 10
+
+[openconnect]
+extraArgs = '-vvv --remote-timeout 600'
+verbose = true
+
+[vpn]
+host = 'pcs.flxvpn.net'
+url = 'https://pcs.flxvpn.net/emp'
