@@ -42,9 +42,15 @@ func (c *Controller) eventLoop() {
 		// cookie rejected, mark as such and shutdown openconnect
 		c.dsidTracker.reject(currentDSID)
 		if c.openConnectProcess.running {
-			c.log.Printf("DSID rejected, killing openconnect process %s", currentDSID)
+			c.log.Printf("DSID rejected, killing openconnect process (dsid=%s)", currentDSID)
 			c.openConnectProcess.Stop()
 		}
+	}
+
+	// check if the openconnect process itself has marked itself as unhealthy but is still running
+	if c.openConnectProcess.running && c.openConnectProcess.attemptState.needsRestart {
+		c.log.Printf("openconnect marked itself as unhealthy, stopping pid=%d", c.openConnectProcess.cmd.Process.Pid)
+		c.openConnectProcess.Stop()
 	}
 
 	if c.openConnectProcess.running {
