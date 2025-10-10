@@ -1,19 +1,22 @@
 [controller]
 intervalSeconds = 1
+healthCheckGracePeriodSeconds = 5
 
 [dsidPoller]
 cookieName = 'DSID'
-cookiePath = '/home/d/.config/google-chrome/Profile 1/Cookies'
+cookiePath = '/home/<user>/.config/google-chrome/Profile 1/Cookies'
+cookieHost = 'my.vpn.host'
 
 [healthCheck]
 host = '8.8.8.8'
 port = '53'
-timeoutSeconds = 10
+timeoutSeconds = 1
 
 [openconnect]
-extraArgs = '-vvv --remote-timeout 600'
+extraArgs = '--no-dtls'
 verbose = true
+dryRun = false
+shutdownGracePeriodSeconds = 5
 
 [vpn]
-host = 'pcs.flxvpn.net'
-url = 'https://pcs.flxvpn.net/emp'
+url = 'https://my.vpn.host'
