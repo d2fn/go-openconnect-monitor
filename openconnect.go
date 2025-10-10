@@ -120,6 +120,7 @@ func (p *OpenConnectProcess) parseStderr(r io.ReadCloser) {
 			p.attemptState.rejectedDSID = p.dsid
 			// todo: imediately mark cookie as rejected
 			p.log.Printf("DSID cookie rejected by server: %s", p.dsid)
+		} else if strings.HasPrefix(line, "Unknown Pulse packet of ") {
 		}
 	}
 	if err := sc.Err(); err != nil {

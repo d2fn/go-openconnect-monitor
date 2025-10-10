@@ -1,0 +1,23 @@
+[controller]
+intervalSeconds = 1
+healthCheckGracePeriodSeconds = 5
+
+[dsidPoller]
+cookieName = 'DSID'
+cookiePath = '/home/<user>/.config/google-chrome/Profile 1/Cookies'
+cookieHost = 'my.vpn.host'
+
+[healthCheck]
+host = '8.8.8.8'
+port = '53'
+timeoutSeconds = 2
+
+[openconnect]
+extraArgs = '--no-dtls'
+verbose = true
+dryRun = false
+shutdownGracePeriodSeconds = 5
+
+[vpn]
+url = 'https://my.vpn.host/emp'
+

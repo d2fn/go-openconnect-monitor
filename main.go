@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"context"
 )
 
@@ -49,6 +50,7 @@ func main() {
 
 	config, err := LoadConfig()
 	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
 		return
 	}
 

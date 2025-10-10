@@ -1,7 +1,7 @@
 {
   description = "Go app with a locally patched openconnect";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = { self, nixpkgs }:
   let
@@ -27,7 +27,7 @@
         goPkg = pkgs.buildGoModule {
           inherit pname version;
           src = ./.;
-          vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+          vendorHash = "sha256-xuqWgUQWYQs5Y8NLcb9VjuwM4CYdSJ5Z2iAW/oIA77U=";
           ldflags = [ "-s" "-w" ];
         };
       in {
@@ -49,12 +49,22 @@
             platforms = platforms.linux;
           };
         };
+        packages.x86_64-linux.default = pkgs.buildGoModule {
+          pname = "go-openconnect-monitor";
+          version = "1.0.0";
+          src = ./.;
+          vendorSha256 = null;
+        };
+        apps.x86_64-linux.default = {
+          type = "app";
+          program = "${self.packages.x86_64-linux.default}/bin/go-openconnect-monitor";
+        };
       });
 
     apps = forAllSystems (pkgs: {
       default = {
         type = "app";
-        program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/my-go-app";
+        program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/go-openconnect-monitor";
       };
     });
 
@@ -66,10 +76,12 @@
       in {
         default = pkgs.mkShell {
           packages = [
-            pkgs.go
+            pkgs.go_1_25
+						pkgs.gotools
             oc
             pkgs.git
           ];
+					GOTOOLCHAIN = "local";
         };
       });
 
