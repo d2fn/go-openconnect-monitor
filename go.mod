@@ -1,4 +1,4 @@
-module github.com/d2fn/go-open-connect-monitor
+module github.com/d2fn/go-openconnect-monitor
 
 go 1.25.1
 

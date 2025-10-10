@@ -1,9 +1,9 @@
 package main
 
 import (
-	"os"
 	"fmt"
 	toml "github.com/pelletier/go-toml/v2"
+	"os"
 )
 
 const (
@@ -11,35 +11,38 @@ const (
 )
 
 type Config struct {
-	Controller ControllerConfig
-	DsidPoller DsidPollerConfig
+	Controller  ControllerConfig
+	DsidPoller  DsidPollerConfig
 	HealthCheck HealthCheckConfig
 	OpenConnect OpenConnectConfig
-	Vpn VPNConfig
+	Vpn         VPNConfig
 }
 
 type ControllerConfig struct {
-	IntervalSeconds int
+	IntervalSeconds               int
+	HealthCheckGracePeriodSeconds int
 }
 
 type DsidPollerConfig struct {
 	CookieName string
 	CookiePath string
+	CookieHost string
 }
 
 type HealthCheckConfig struct {
-	Host string
-	Port string
+	Host           string
+	Port           string
 	TimeoutSeconds int
 }
 
 type OpenConnectConfig struct {
-	ExtraArgs string
-	Verbose bool
+	ExtraArgs                  string
+	Verbose                    bool
+	DryRun                     bool
+	ShutdownGracePeriodSeconds int
 }
 
 type VPNConfig struct {
-	Host string
 	Url string
 }
 

@@ -5,58 +5,160 @@ import (
 
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
-	"errors"
 	"os"
 	"os/exec"
-	"syscall"
 	"strings"
+	"syscall"
 	"time"
-
 )
 
 type OpenConnectProcess struct {
+
+	// connection config
+	url                 string
+	dsid                string
+	shutdownGracePeriod time.Duration
+
+	// openconnect command settings
+	extraArgs string
+	verbose   bool
+	dryRun    bool
+
+	// process management
 	mu      sync.Mutex
-	cmd     *exec.Cmd
 	env     []string
+	ctx     context.Context
+	cmd     *exec.Cmd
 	running bool
-	dsid    string
+
+	// connection attempt state
+	attemptState *ConnectionAttemptState
+
+	// logger
+	log *log.Logger
 }
 
-func NewOpenConnectProcess() *OpenConnectProcess {
-	return &OpenConnectProcess{env: os.Environ()}
+/*
+ConnectionAttemptStatus:
+A pure data structure containing metadata about a given connection attempt. If the attempt
+was successful it should report the server and client IP address. If not it should report
+any error state, specifically if the DSID cookie was rejected by the server.
+*/
+
+type ConnectionAttemptState struct {
+	success      bool
+	hostAddr     string
+	clientAddr   string
+	rejectedDSID string
+	needsRestart bool
 }
 
-func stream(tag string, r io.ReadCloser) {
+func NewOpenConnectProcess(vpnConfig VPNConfig, openConnectConfig OpenConnectConfig, ctx context.Context) *OpenConnectProcess {
+	return &OpenConnectProcess{
+		env:                 os.Environ(),
+		ctx:                 ctx,
+		url:                 vpnConfig.Url,
+		shutdownGracePeriod: time.Duration(openConnectConfig.ShutdownGracePeriodSeconds) * time.Second,
+		extraArgs:           openConnectConfig.ExtraArgs,
+		verbose:             openConnectConfig.Verbose,
+		dryRun:              openConnectConfig.DryRun,
+		attemptState:        &ConnectionAttemptState{},
+		log:                 log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile),
+	}
+}
+
+func (p *OpenConnectProcess) parseStdout(in io.ReadCloser) {
+	// continually read from stdin looking looking for updates to push into our ConnectionAttemptState
+	defer in.Close()
+	sc := bufio.NewScanner(in)
+	for sc.Scan() {
+		line := sc.Text()
+		if p.verbose {
+			p.log.Printf(line)
+		}
+		if strings.HasPrefix(line, "Connected to ") {
+			// found ip address of vpn host
+			parts := strings.Split(line, " ")
+			if len(parts) == 3 {
+				host := strings.Split(parts[2], ":")[0]
+				p.attemptState.hostAddr = host
+				p.log.Printf("Connected to remote %s", host)
+			}
+		} else if strings.HasPrefix(line, "Configured as ") {
+			// found ip address of client
+			host := strings.Split(line, " ")[2]
+			p.attemptState.clientAddr = host
+			p.log.Printf("Configured client as %s", host)
+		} else if strings.HasPrefix(line, "Session authentication will expire at ") {
+			if p.attemptState.hostAddr != "" && p.attemptState.clientAddr != "" && p.attemptState.rejectedDSID == "" {
+				p.attemptState.success = true
+				p.log.Printf("Successfully connected to remote %s as %s", p.attemptState.hostAddr, p.attemptState.clientAddr)
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		p.log.Printf("stream error: %v", err)
+	}
+}
+
+func (p *OpenConnectProcess) parseStderr(r io.ReadCloser) {
 	defer r.Close()
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
-		log.Printf("[%s] %s", tag, sc.Text())
+		line := sc.Text()
+		if p.verbose {
+			p.log.Printf(line)
+		}
+		if strings.HasPrefix(line, "ESP detected dead peer") {
+			// todo: signal that we need a restart
+			p.attemptState.needsRestart = true
+		} else if strings.HasPrefix(line, "Cookie was rejected by server") {
+			p.attemptState.rejectedDSID = p.dsid
+			// todo: imediately mark cookie as rejected
+			p.log.Printf("DSID cookie rejected by server: %s", p.dsid)
+		}
 	}
 	if err := sc.Err(); err != nil {
-		log.Printf("[%s] stream error: %v", tag, err)
+		p.log.Printf("stream error: %v", err)
 	}
 }
 
-func (p *OpenConnectProcess) Start(ctx context.Context) error {
+// get the current dsid and whether or not we saw it rejected
+func (p *OpenConnectProcess) getDSIDStatus() (string, bool) {
+	return p.dsid, p.dsid == p.attemptState.rejectedDSID
+}
+
+func (p *OpenConnectProcess) Start() error {
 
 	if strings.TrimSpace(p.dsid) == "" {
-		return errors.New("no DSID set")
+		return errors.New("no_dsid")
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.running {
-		return errors.New("vpn client already running")
+		return errors.New("VPN client already running")
 	}
 
 	name := "openconnect"
-	args := []string { "-C", p.dsid, "--protocol=pulse", "https://pcs.flxvpn.net/emp" }
+	args := []string{"-C", p.dsid, "--protocol=pulse"}
+	if p.extraArgs != "" {
+		args = append(args, p.extraArgs)
+	}
+	args = append(args, p.url)
 
-	cmd := exec.CommandContext(ctx, name, args...)
+	if p.dryRun {
+		log.Printf("[dry run] %s %s", name, strings.Join(args, " "))
+		p.running = true
+		return nil
+	}
+
+	cmd := exec.CommandContext(p.ctx, name, args...)
 	cmd.Env = p.env
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
@@ -72,13 +174,15 @@ func (p *OpenConnectProcess) Start(ctx context.Context) error {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	go stream("STDOUT", stdout)
-	go stream("STDERR", stderr)
+	// clear state
+	p.attemptState = &ConnectionAttemptState{success: false}
+	go p.parseStdout(stdout)
+	go p.parseStderr(stderr)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("error starting process: %w", err)
 	} else {
-		log.Printf("[child] openconnect pid = %d", cmd.Process.Pid)
+		p.log.Printf("[child] openconnect pid = %d", cmd.Process.Pid)
 	}
 
 	p.cmd = cmd
@@ -90,16 +194,22 @@ func (p *OpenConnectProcess) Start(ctx context.Context) error {
 		p.running = false
 		p.mu.Unlock()
 		if err != nil {
-			log.Printf("[child] exited with error: %v", err)
+			p.log.Printf("[child] exited with error: %v", err)
 		} else {
-			log.Printf("[child] exited")
+			p.log.Printf("[child] exited")
 		}
 	}()
 
 	return nil
 }
 
-func (p *OpenConnectProcess) Stop(grace time.Duration) {
+func (p *OpenConnectProcess) Restart() {
+	p.Stop()
+	p.Start()
+}
+
+func (p *OpenConnectProcess) Stop() {
+
 	p.mu.Lock()
 	cmd := p.cmd
 	running := p.running
@@ -117,55 +227,18 @@ func (p *OpenConnectProcess) Stop(grace time.Duration) {
 		close(waitCh)
 	}()
 
+	// wait for shutdown or force SIGKILL
 	select {
 	case <-waitCh:
 		p.mu.Lock()
 		p.running = false
 		p.mu.Unlock()
 		return
-	case <-time.After(grace):
+	case <-time.After(p.shutdownGracePeriod):
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 		p.mu.Lock()
 		p.running = false
+		p.attemptState = &ConnectionAttemptState{success: false}
 		p.mu.Unlock()
 	}
 }
-
-
-/**
-❯ go run .
-2025/10/07 12:17:06 [parent] Attempting to start openconnect with DSID = abs123XXXX
-2025/10/07 12:17:06 [child] openconnect pid = 8461
-2025/10/07 12:17:06 [parent] started child
-// when we see the following line that starts with "Connected to $IP", set the VPN host in the connection status
-2025/10/07 12:17:07 [STDOUT] Connected to 192.000.000.000:443
-2025/10/07 12:17:07 [STDOUT] SSL negotiation with pcs.flxvpn.net
-2025/10/07 12:17:07 [STDOUT] Connected to HTTPS on pcs.flxvpn.net with ciphersuite (TLS1.2)-(RSA)-(AES-128-GCM)
-2025/10/07 12:17:07 [STDOUT] Got HTTP response: HTTP/1.1 101 Switching Protocols
-// not sure what to do with this, log it maybe
-2025/10/07 12:17:07 [STDOUT] Unexpected Pulse configuration packet: wrong type field (!= 1)
-// when we see the line starting "Configured as $IP" set the client IP in the connection status
-2025/10/07 12:17:07 [STDOUT] Configured as 172.000.000.000 + xxxxxxxxxxxxxxxxxxxxxxxxx, with SSL connected and ESP in progress
-// when we see "Session authentication will expire at $date", parse date and set as expiry time in connection status
-2025/10/07 12:17:07 [STDOUT] Session authentication will expire at Wed Oct  8 09:54:32 2025
-2025/10/07 12:17:07 [STDOUT] 
-2025/10/07 12:17:07 [STDERR] mkdir: cannot create directory ‘/var/run/vpnc’: Permission denied
-2025/10/07 12:17:07 [STDERR] Failed to bind local tun device (TUNSETIFF): Operation not permitted
-2025/10/07 12:17:07 [STDERR] To configure local networking, openconnect must be running as root
-2025/10/07 12:17:07 [STDERR] See https://www.infradead.org/openconnect/nonroot.html for more information
-2025/10/07 12:17:07 [STDERR] Set up tun device failed
-2025/10/07 12:17:07 [STDOUT] Unrecoverable I/O error; exiting.
-2025/10/07 12:17:07 [child] exited with error: exit status 1
-2025/10/07 12:17:07 [parent] Attempting to start openconnect with DSID = abc123XXXXX
-2025/10/07 12:17:07 [child] openconnect pid = 8477
-2025/10/07 12:17:07 [parent] started child
-2025/10/07 12:17:07 [STDOUT] Connected to 192.173.91.18:443
-2025/10/07 12:17:08 [STDOUT] SSL negotiation with pcs.flxvpn.net
-2025/10/07 12:17:08 [STDOUT] Connected to HTTPS on pcs.flxvpn.net with ciphersuite (TLS1.2)-(RSA)-(AES-128-GCM)
-2025/10/07 12:17:08 [STDOUT] Got HTTP response: HTTP/1.1 101 Switching Protocols
-2025/10/07 12:17:08 [STDERR] Authentication failure: Code 0x00
-2025/10/07 12:17:08 [STDERR] Creating SSL connection failed
-2025/10/07 12:17:08 [STDERR] Cookie was rejected by server; exiting.
-2025/10/07 12:17:08 [child] exited with error: exit status 2
-^Csignal: interrupt
-**/
