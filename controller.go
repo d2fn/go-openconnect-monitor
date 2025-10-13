@@ -99,10 +99,3 @@ func (c *Controller) Start() {
 	}
 }
 
-func (c *Controller) sendDSID(dsid string) {
-	c.log.Printf("Received DSID: %s", dsid)
-}
-
-func (c *Controller) sendhealthCheckResult(status bool) {
-	c.log.Printf("Received health check status: %b", status)
-}
