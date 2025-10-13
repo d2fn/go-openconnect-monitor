@@ -19,4 +19,4 @@ dryRun = false
 shutdownGracePeriodSeconds = 5
 
 [vpn]
-url = 'https://my.vpn.host'
+url = 'https://my.vpn.host/emp'
