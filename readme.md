@@ -6,5 +6,5 @@
 First, add your Pulse VPN host and url to `config.toml`. Then you can run via
 
 ```
-nix run .
+sudo nix run .
 ```
