@@ -14,7 +14,8 @@ type DSIDCookiePoller struct {
 	cookiePath string
 	domain     string
 	cookieName string
-	tmpFile string
+	tmpFile    string
+	lastDSID   string
 }
 
 func NewDSIDCookiePoller(config DsidCookiePollerConfig, tmpFile string) *DSIDCookiePoller {
@@ -27,11 +28,7 @@ func (poller *DSIDCookiePoller) openCookies() kooky.CookieSeq {
 
 func (poller *DSIDCookiePoller) get() (string, error) {
 	for cookie := range poller.openCookies() {
-		if cookie.Domain == poller.domain {
-			fmt.Printf("%s / %s\n", cookie.Name, cookie.Value)
-		}
 		if cookie.Domain == poller.domain && cookie.Name == poller.cookieName {
-			fmt.Println("found dsid")
 			return cookie.Value, nil
 		}
 	}
@@ -40,10 +37,13 @@ func (poller *DSIDCookiePoller) get() (string, error) {
 
 func (p *DSIDCookiePoller) pollAndSave() {
 	if dsid, err := p.get(); err == nil {
-		fmt.Printf("Found DSID = %s, writing to %s\n", dsid, p.tmpFile)
-		err = os.WriteFile(p.tmpFile, []byte(dsid), 0600)
-		if err != nil {
-			fmt.Printf("Error writing DSID")
+		if dsid != p.lastDSID {
+			fmt.Printf("Found new DSID = %s, old dsid = %s, writing to %s\n", dsid, p.lastDSID, p.tmpFile)
+			err = os.WriteFile(p.tmpFile, []byte(dsid), 0600)
+			if err != nil {
+				fmt.Printf("Error writing DSID")
+			}
+			p.lastDSID = dsid
 		}
 		return
 	}
