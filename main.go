@@ -1,8 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"context"
+	"fmt"
+	"os"
+	"time"
 )
 
 /**
@@ -45,6 +47,7 @@ Holds configurable data such as
 - Time between health checks. This is also the time at which we check for new cookies
 
  **/
+const dsidFile = ".dsid"
 
 func main() {
 
@@ -54,14 +57,20 @@ func main() {
 		return
 	}
 
-	dsidPoller := NewDSIDPoller(config.DsidPoller)
-	healthChecker := NewHealthChecker(config.HealthCheck)
+	if len(os.Args) >= 2 && os.Args[1] == "poll_cookies" {
+		dsidCookiePoller := NewDSIDCookiePoller(config.DsidCookiePoller, dsidFile)
+		dsidCookiePoller.Start(time.Second * time.Duration(config.Controller.IntervalSeconds))
+	} else {
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		healthChecker := NewHealthChecker(config.HealthCheck)
 
-	openConnectProcess := NewOpenConnectProcess(config.Vpn, config.OpenConnect, ctx)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	controller := NewController(config.Controller, dsidPoller, healthChecker, openConnectProcess)
-	controller.Start()
+		openConnectProcess := NewOpenConnectProcess(config.Vpn, config.OpenConnect, ctx)
+		dsidFileReader := NewDSIDFileReader(dsidFile)
+
+		controller := NewController(config.Controller, dsidFileReader, healthChecker, openConnectProcess)
+		controller.Start()
+	}
 }

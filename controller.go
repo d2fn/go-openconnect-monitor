@@ -9,7 +9,7 @@ import (
 type Controller struct {
 	interval               time.Duration
 	healthCheckGracePeriod time.Duration
-	dsidPoller             *DSIDPoller
+	dsidFileReader         *DSIDFileReader
 	healthChecker          *HealthChecker
 	openConnectProcess     *OpenConnectProcess
 	dsidTracker            *DSIDTracker
@@ -19,11 +19,11 @@ type Controller struct {
 	lastHealthyConnectionTime time.Time
 }
 
-func NewController(config ControllerConfig, dsidPoller *DSIDPoller, healthChecker *HealthChecker, openConnectProcess *OpenConnectProcess) *Controller {
+func NewController(config ControllerConfig, dsidFileReader *DSIDFileReader, healthChecker *HealthChecker, openConnectProcess *OpenConnectProcess) *Controller {
 	return &Controller{
 		interval:                  time.Duration(config.IntervalSeconds) * time.Second,
 		healthCheckGracePeriod:    time.Duration(config.HealthCheckGracePeriodSeconds) * time.Second,
-		dsidPoller:                dsidPoller,
+		dsidFileReader:          	 dsidFileReader,
 		healthChecker:             healthChecker,
 		openConnectProcess:        openConnectProcess,
 		dsidTracker:               NewDSIDTracker(),
@@ -66,7 +66,7 @@ func (c *Controller) eventLoop() {
 		}
 	}
 
-	if dsid, err := c.dsidPoller.get(); err == nil {
+	if dsid, err := c.dsidFileReader.ReadDSID(); err == nil {
 		// new dsid cookie available, notify the cookie tracker
 		status := c.dsidTracker.notify(dsid)
 		switch status {

@@ -27,7 +27,8 @@
         goPkg = pkgs.buildGoModule {
           inherit pname version;
           src = ./.;
-          vendorHash = "sha256-xuqWgUQWYQs5Y8NLcb9VjuwM4CYdSJ5Z2iAW/oIA77U=";
+          # vendorHash = "sha256-xuqWgUQWYQs5Y8NLcb9VjuwM4CYdSJ5Z2iAW/oIA77U=";
+					vendorHash = null;
           ldflags = [ "-s" "-w" ];
         };
       in {

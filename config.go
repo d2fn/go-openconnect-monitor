@@ -12,7 +12,8 @@ const (
 
 type Config struct {
 	Controller  ControllerConfig
-	DsidPoller  DsidPollerConfig
+	DsidWriter  DsidWriterConfig
+	DsidCookiePoller  DsidCookiePollerConfig
 	HealthCheck HealthCheckConfig
 	OpenConnect OpenConnectConfig
 	Vpn         VPNConfig
@@ -23,10 +24,14 @@ type ControllerConfig struct {
 	HealthCheckGracePeriodSeconds int
 }
 
-type DsidPollerConfig struct {
+type DsidCookiePollerConfig struct {
 	CookieName string
 	CookiePath string
 	CookieHost string
+}
+
+type DsidWriterConfig struct {
+	IntervalSeconds int
 }
 
 type HealthCheckConfig struct {
