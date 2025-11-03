@@ -15,5 +15,5 @@ sudo nix run .#poller
 sudo nix run .#openconnect
 ```
 
-Or use the script `launch.sh` to launch a tmux split pane showing both running processes.
+Or use the script `script/launch.sh` to launch a tmux split pane showing both running processes.
 
