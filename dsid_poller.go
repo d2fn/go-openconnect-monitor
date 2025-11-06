@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 	"os"
+	"log"
 
 	"github.com/browserutils/kooky"
 	_ "github.com/browserutils/kooky/browser/all" // register cookie store finders!
@@ -16,10 +17,17 @@ type DSIDCookiePoller struct {
 	cookieName string
 	tmpFile    string
 	lastDSID   string
+	log        *log.Logger
 }
 
 func NewDSIDCookiePoller(config DsidCookiePollerConfig, tmpFile string) *DSIDCookiePoller {
-	return &DSIDCookiePoller{cookiePath: config.CookiePath, domain: config.CookieHost, cookieName: config.CookieName, tmpFile: tmpFile }
+	return &DSIDCookiePoller {
+		cookiePath: config.CookiePath,
+		domain: config.CookieHost,
+		cookieName: config.CookieName,
+	  tmpFile: tmpFile,
+		log: log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile),
+	}
 }
 
 func (poller *DSIDCookiePoller) openCookies() kooky.CookieSeq {
@@ -38,10 +46,10 @@ func (poller *DSIDCookiePoller) get() (string, error) {
 func (p *DSIDCookiePoller) pollAndSave() {
 	if dsid, err := p.get(); err == nil {
 		if dsid != p.lastDSID {
-			fmt.Printf("Found new DSID = %s, old dsid = %s, writing to %s\n", dsid, p.lastDSID, p.tmpFile)
+			p.log.Printf("Found new DSID = %s, old dsid = %s, writing to %s\n", dsid, p.lastDSID, p.tmpFile)
 			err = os.WriteFile(p.tmpFile, []byte(dsid), 0600)
 			if err != nil {
-				fmt.Printf("Error writing DSID")
+				fmt.Errorf("Error writing DSID")
 			}
 			p.lastDSID = dsid
 		}

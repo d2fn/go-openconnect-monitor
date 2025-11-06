@@ -62,6 +62,7 @@ func (c *Controller) eventLoop() {
 				// health checks are failing, kill openconnect
 				c.log.Printf("Health checks failing for %s, killing current openconnect process %d", c.healthCheckGracePeriod, c.openConnectProcess.cmd.Process.Pid)
 				c.openConnectProcess.Stop()
+				// possibly trigger browser open here to geta new cookie
 			}
 		}
 	}

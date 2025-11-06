@@ -110,17 +110,17 @@ func (p *OpenConnectProcess) parseStderr(r io.ReadCloser) {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
 		line := sc.Text()
-		if p.verbose {
+		pulsePacketSpam := strings.HasPrefix(line, "Unknown Pulse packet of ");
+		if p.verbose && !pulsePacketSpam {
 			p.log.Printf(line)
 		}
 		if strings.HasPrefix(line, "ESP detected dead peer") {
 			// todo: signal that we need a restart
 			p.attemptState.needsRestart = true
 		} else if strings.HasPrefix(line, "Cookie was rejected by server") {
-			p.attemptState.rejectedDSID = p.dsid
-			// todo: imediately mark cookie as rejected
-			p.log.Printf("DSID cookie rejected by server: %s", p.dsid)
-		} else if strings.HasPrefix(line, "Unknown Pulse packet of ") {
+				p.attemptState.rejectedDSID = p.dsid
+				// todo: imediately mark cookie as rejected
+				p.log.Printf("DSID cookie rejected by server: %s", p.dsid)
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -149,7 +149,9 @@ func (p *OpenConnectProcess) Start() error {
 	name := "openconnect"
 	args := []string{"-C", p.dsid, "--protocol=pulse"}
 	if p.extraArgs != "" {
-		args = append(args, p.extraArgs)
+		for _, arg := range strings.Split(p.extraArgs, " ") {
+			args = append(args, arg)
+		}
 	}
 	args = append(args, p.url)
 
@@ -213,9 +215,8 @@ func (p *OpenConnectProcess) Stop() {
 
 	p.mu.Lock()
 	cmd := p.cmd
-	running := p.running
 	p.mu.Unlock()
-	if cmd == nil || !running {
+	if cmd == nil { //|| !running {
 		return
 	}
 	pgid, _ := syscall.Getpgid(cmd.Process.Pid)
