@@ -1,6 +1,6 @@
 module github.com/d2fn/go-openconnect-monitor
 
-go 1.25.1
+go 1.24
 
 require (
 	github.com/browserutils/kooky v0.2.4
