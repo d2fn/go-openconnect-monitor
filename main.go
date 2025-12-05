@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
+	"flag"
+	"os"
 )
 
 /**
@@ -47,29 +48,41 @@ Holds configurable data such as
 - Time between health checks. This is also the time at which we check for new cookies
 
  **/
-const dsidFile = ".dsid"
+
+var dsidPath string
+var configPath string
+var mode string
 
 func main() {
 
-	config, err := LoadConfig()
+	for index, arg := range os.Args {
+		fmt.Printf("arg[%d] = %s\n", index, arg)
+	}
+
+	flag.StringVar(&dsidPath, "dsid_path", ".dsid", "Path to file containing the DSID used for openconnect")
+	flag.StringVar(&configPath, "config_path", "config.toml", "Path to file containing the DSID used for openconnect")
+	flag.StringVar(&mode, "mode", "poll_cookies", "Mode can be 'poll_cookies' or 'manage_openconnect'")
+	flag.Parse()
+
+	fmt.Printf("dsidPath     = %s\n", dsidPath)
+	fmt.Printf("configPath   = %s\n", configPath)
+	fmt.Printf("mode         = %s\n", mode)
+
+	config, err := LoadConfig(configPath)
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		return
 	}
 
-	if len(os.Args) >= 2 && os.Args[1] == "poll_cookies" {
-		dsidCookiePoller := NewDSIDCookiePoller(config.DsidCookiePoller, dsidFile)
+	if mode == "poll_cookies" {
+		dsidCookiePoller := NewDSIDCookiePoller(config.DsidCookiePoller, dsidPath)
 		dsidCookiePoller.Start(time.Second * time.Duration(config.Controller.IntervalSeconds))
 	} else {
-
 		healthChecker := NewHealthChecker(config.HealthCheck)
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		openConnectProcess := NewOpenConnectProcess(config.Vpn, config.OpenConnect, ctx)
-		dsidFileReader := NewDSIDFileReader(dsidFile)
-
+		dsidFileReader := NewDSIDFileReader(dsidPath)
 		controller := NewController(config.Controller, dsidFileReader, healthChecker, openConnectProcess)
 		controller.Start()
 	}

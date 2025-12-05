@@ -6,10 +6,6 @@ import (
 	"os"
 )
 
-const (
-	configPath = "./config.toml"
-)
-
 type Config struct {
 	Controller  ControllerConfig
 	DsidWriter  DsidWriterConfig
@@ -51,13 +47,13 @@ type VPNConfig struct {
 	Url string
 }
 
-func LoadConfig() (Config, error) {
+func LoadConfig(configPath string) (Config, error) {
 	config := Config{}
 	tomlBytes, err := os.ReadFile(configPath)
 	if err == nil {
 		err = toml.Unmarshal(tomlBytes, &config)
 		if err == nil {
-			fmt.Printf("loaded configfile from %s\n", configPath)
+			fmt.Printf("loaded config file from %s\n", configPath)
 			return config, nil
 		}
 	}
