@@ -1,16 +1,27 @@
 # nixos-vpn-manager.nix in your vpnManager repo
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   system = pkgs.stdenv.hostPlatform.system;
-
-  # this is the package from your flake
   pkg = config.vpnManager.package or null;
+  cfg = config.vpnManager;
 in
 {
-  options.vpnManager.package = lib.mkOption {
-    type = lib.types.package;
-    description = "The vpn-manager package (go-openconnect-monitor).";
+
+  options.vpnManager = {
+    package = lib.mkOption {
+      type = lib.types.package;
+      description = "The vpn-manager package (go-openconnect-monitor).";
+    };
+    user = lib.mkOption {
+      type = lib.types.str;
+      description = "The user account where the vpn config is managed";
+    };
   };
 
   config = lib.mkIf (pkg != null) {
@@ -27,8 +38,8 @@ in
         ExecStart = ''
           ${pkg}/bin/go-openconnect-monitor \
             -mode=manage_openconnect \
-            -dsid_path=/home/d/.config/vpn-manager/.dsid \
-            -config_path=/home/d/.config/vpn-manager/config.toml
+            -dsid_path=/home/${cfg.user}/.config/vpn-manager/.dsid \
+            -config_path=/home/${cfg.user}/.config/vpn-manager/config.toml
         '';
 
         Restart = "on-failure";
