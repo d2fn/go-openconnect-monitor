@@ -11,10 +11,11 @@
 		};
   in {
     # HM module
-    homeManagerModules.vpnManager = ./hm-vpn-manager.nix;
+    homeManagerModules.vpnManager = ./modules/hm-vpn-manager.nix;
+    nixosModules.vpnManager = ./modules/nixos-vpn-manager.nix;
     # Package
     packages.${system} = {
-			vpnManager = pkgs.callPackage ./default.nix { };
+			vpnManager = pkgs.callPackage ./pkgs/vpn-manager.nix { };
 			default = self.packages.${system}.vpnManager;
 		};
   };

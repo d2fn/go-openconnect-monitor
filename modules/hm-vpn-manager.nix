@@ -9,89 +9,42 @@ let
 	vpnConfigToml = tomlFormat.generate "vpn-manager-config.toml" cfg;
 in
 {
-  options.vpnManager = {
-    enable = lib.mkEnableOption "VPN manager Go app";
-		vpn = {
-			url = lib.mkOption {
-				type = lib.types.str;
-				description = "Pulse VPN URL";
-			};
-		};
-		openconnect = {
-			verbose = lib.mkOption {
-				type = lib.types.bool;
-				default = true;
-				description = "Enable verbose output from openconnect";
-			};
-			extraArgs = lib.mkOption {
-				type = lib.types.str;
-				default = "";
-				description = "Add extra args to openconnect";
-			};
-			shutdownGracePeriodSeconds = lib.mkOption {
-				type = lib.types.int;
-				default = 10;
-				description = "When manually shutting down openconnect, the number of seconds we wait to force kill";
-			};
-			dryRun = lib.mkOption {
-				type = lib.types.bool;
-				default = false;
-				description = "Don't attempt to connect, just show commands that would be run";
-			};
-		};
-		controller = {
-			intervalSeconds = lib.mkOption {
-				type = lib.types.int;
-				default = 1;
-				description = "Event loop timeout";
-			};
-			healthCheckGracePeriodSeconds = lib.mkOption {
-				type = lib.types.int;
-				default = 1;
-				description = "Number of seconds that health checks must fail before killing openconnect";
-			};
-		};
-		healthCheck = {
-			host = lib.mkOption {
-				type = lib.types.str;
-				default = "192.173.91.18";
-				description = "Host to dial for health check";
-			};
-			port = lib.mkOption {
-				type = lib.types.str;
-				default = "443";
-				description = "Port to dial on health check host";
-			};
-			timeoutSeconds = lib.mkOption {
-				type = lib.types.int;
-				default = 2;
-				description = "Dial timeout for health check";
-			};
-		};
-		dsidCookiePoller = {
-			cookieName = lib.mkOption {
-				type = lib.types.str;
-				default = "DSID";
-				description = "Cookie name for DSID";
-			};
-			cookiePath = lib.mkOption {
-				type = lib.types.str;
-				description = "Path to Chrome cookies";
-			};
-			cookieHost = lib.mkOption {
-				type = lib.types.str;
-				description = "Domain under which cookie is stored";
-			};
-		};
-  };
+
+  imports = [
+    ./options.nix
+  ];
 
   config = lib.mkIf cfg.enable {
 
-		# this is a *path* to a generated TOML file in the store
+		# symlink from xdg to the generated toml for the generation
 		xdg.configFile."vpn-manager/config.toml".source = vpnConfigToml;
 
 		# add btop config for vpn-btop below
-		xdg.configFile."vpn-manager/btop.config".source = ./config/btop.config;
+		xdg.configFile."vpn-manager/btop.config".source = ../config/btop.config;
+
+    systemd.user.services.vpn-dsid-poller = {
+      Unit = {
+        Description = "VPN DSID cookie poller";
+        After = [ "network-online.target" ];
+      };
+
+      Service = {
+        Type = "simple";
+
+        # %h = home dir, so this hits $HOME/.config/vpn-manager/...
+        ExecStart = ''
+          ${pkg}/bin/go-openconnect-monitor \
+            --mode=poll_cookies \
+            --dsid_path=%h/.config/vpn-manager/.dsid \
+            --config_path=%h/.config/vpn-manager/config.toml
+        '';
+
+        Restart = "on-failure";
+        RestartSec = 2;
+      };
+
+      Install.WantedBy = [ "default.target" ];
+    };
 
     home.packages =
       [
