@@ -97,8 +97,8 @@ in
 					#!/usr/bin/env bash
 					session_name="vpn"
 					tmux new-session  -d -s $session_name -n btop 'vpn-btop'
-					tmux split-window -v -t $session_name:1 'vpn-dsid-poller'
-					tmux split-window -v -t $session_name:1 'vpn-manager'
+					tmux split-window -v -t $session_name:1 'journalctl --user -u vpn-dsid-poller -f'
+					tmux split-window -v -t $session_name:1 'journalctl -u vpn-manager -f'
 					tmux attach -t $session_name
         '')
       ];
